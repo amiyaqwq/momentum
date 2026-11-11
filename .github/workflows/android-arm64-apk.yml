@@ -52,19 +52,25 @@ jobs:
       - name: Build ARM64 APK (no Supabase secrets required)
         run: npx tauri android build --ci --apk --target aarch64
 
-      - name: Find APK
+      - name: Find and sign APK
         id: find-apk
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' ! -name '*unsigned*' | head -n 1)"
+          APK="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*unsigned*.apk' | head -n 1)"
           if [ -z "$APK" ]; then
-            echo "No installable APK was generated."
+            echo "No unsigned APK was generated."
             find src-tauri/gen/android/app/build/outputs -type f || true
             exit 1
           fi
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "APK found: $APK"
+          KEYSTORE="$RUNNER_TEMP/debug.keystore"
+          keytool -genkeypair -v -keystore "$KEYSTORE" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          SIGNED_APK="${APK%.apk}-signed.apk"
+          "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" sign --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android --out "$SIGNED_APK" "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" verify "$SIGNED_APK"
+          echo "path=$SIGNED_APK" >> "$GITHUB_OUTPUT"
+          echo "Signed APK: $SIGNED_APK"
+
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
